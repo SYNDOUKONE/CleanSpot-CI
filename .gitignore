@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data & models (never commit datasets or weights)
+datasets/**/*.zip
+datasets/**/*.tar.gz
+datasets/**/images/
+datasets/**/labels/
+datasets/**/annotations/
+models/**/*.pt
+models/**/*.pth
+models/**/*.onnx
+!models/**/.gitkeep
+
+# Media captured in the field
+data/
+media/
+*.jpg
+*.jpeg
+*.png
+!frontend/public/**
+!docs/**/*.png
+
+# Node
+node_modules/
+frontend/dist/
+dashboard/build/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Bases de données locales
+*.db
+*.sqlite3
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
