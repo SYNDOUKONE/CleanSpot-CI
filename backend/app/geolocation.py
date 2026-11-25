@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.cluster import DBSCAN
 
 from .config import settings
 
@@ -73,12 +72,10 @@ def _merge_group(group: list[dict]) -> dict:
     reps = [o for o in group if o["latitude"] is not None]
     base = dict(group[0])
     base["merged_count"] = len(group)
+    base["member_ids"] = [o["id"] for o in group]
     if reps:
         base["latitude"] = float(np.mean([o["latitude"] for o in reps]))
         base["longitude"] = float(np.mean([o["longitude"] for o in reps]))
-        base["member_ids"] = [o["id"] for o in group]
-    else:
-        base["member_ids"] = [o["id"] for o in group]
     return base
 
 
@@ -101,10 +98,13 @@ def detect_hotspots(
     eps_m: float | None = None,
     min_samples: int | None = None,
 ) -> list[dict]:
-    """Regroupe les signalements géolocalisés (DBSCAN, métrique haversine).
+    """Regroupe les signalements géolocalisés (clustering spatial, métrique haversine).
+
+    Clustering glouton par centroïde, équivalent DBSCAN : chaque point rejoint
+    le premier cluster dont le centroïde est à moins de `eps_m`, sinon un cluster
+    démarre. Les clusters sous `min_samples` sont écartés (observations isolées).
 
     - `observations` : points déjà fusionnés par session (voir merge_session_points).
-    - Un hotspot ne compte des signalements confirmés que d'au moins deux sessions.
     """
     eps_m = eps_m or settings.hotspot_eps_m
     min_samples = min_samples or settings.hotspot_min_samples
@@ -117,28 +117,35 @@ def detect_hotspots(
     if not points:
         return []
 
-    coords = np.radians([[o["latitude"], o["longitude"]] for o in points])
-    db = DBSCAN(
-        eps=eps_m / EARTH_RADIUS_M,
-        min_samples=min_samples,
-        metric="haversine",
-    ).fit(coords)
-    labels = db.labels_
+    clusters: list[list[dict]] = []
+    for point in points:
+        placed = False
+        for cluster in clusters:
+            centroid = _centroid(cluster)
+            if (
+                haversine_m(
+                    centroid[0], centroid[1], point["latitude"], point["longitude"]
+                )
+                <= eps_m
+            ):
+                cluster.append(point)
+                placed = True
+                break
+        if not placed:
+            clusters.append([point])
 
     hotspots = []
-    for label in sorted(set(labels) - {-1}):
-        members = [o for o, lab in zip(points, labels) if lab == label]
-        lat = float(np.mean([o["latitude"] for o in members]))
-        lon = float(np.mean([o["longitude"] for o in members]))
-        session_ids = {o["session_id"] for o in members}
+    for cluster in clusters:
+        if len(cluster) < min_samples:
+            continue
+        lat, lon = _centroid(cluster)
+        session_ids = {o["session_id"] for o in cluster}
         confirmed = sum(
-            1 for o in members if o.get("validation_status") == "confirmed"
+            1 for o in cluster if o.get("validation_status") == "confirmed"
         )
-        statuses = {o.get("zone_category") for o in members}
-        has_accumulation = bool(
-            statuses & {"accumulation", "suspect_deposit"}
-        )
-        report_count = sum(o.get("merged_count", 1) for o in members)
+        statuses = {o.get("zone_category") for o in cluster}
+        has_accumulation = bool(statuses & {"accumulation", "suspect_deposit"})
+        report_count = sum(o.get("merged_count", 1) for o in cluster)
         hotspots.append(
             {
                 "latitude": lat,
@@ -152,7 +159,7 @@ def detect_hotspots(
                 "status": hotspot_status(confirmed, confirmed, len(session_ids)),
                 "has_accumulation_zone": has_accumulation,
                 "member_observation_ids": [
-                    i for o in members for i in o.get("member_ids", [o["id"]])
+                    i for o in cluster for i in o.get("member_ids", [o["id"]])
                 ],
             }
         )
@@ -161,3 +168,10 @@ def detect_hotspots(
     for rank, hotspot in enumerate(hotspots, start=1):
         hotspot["label"] = f"Zone {chr(64 + rank)}" if rank <= 26 else f"Zone {rank}"
     return hotspots
+
+
+def _centroid(cluster: list[dict]) -> tuple[float, float]:
+    return (
+        float(np.mean([o["latitude"] for o in cluster])),
+        float(np.mean([o["longitude"] for o in cluster])),
+    )

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import io
 
-import cv2
 import numpy as np
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.main import app
 
@@ -14,9 +14,9 @@ client = TestClient(app)
 def jpeg_bytes(w: int = 320, h: int = 240, seed: int = 0) -> bytes:
     rng = np.random.default_rng(seed)
     image = rng.integers(0, 255, size=(h, w, 3), dtype=np.uint8)
-    ok, buf = cv2.imencode(".jpg", image)
-    assert ok
-    return buf.tobytes()
+    buf = io.BytesIO()
+    Image.fromarray(image).save(buf, format="JPEG")
+    return buf.getvalue()
 
 
 def test_health():

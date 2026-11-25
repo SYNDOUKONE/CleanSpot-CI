@@ -114,6 +114,10 @@ streamlit run dashboard/app.py
 | GET | `/api/hotspots` | Zones d'accumulation classées par score |
 | GET | `/api/stats` | Agrégats pour le dashboard |
 
+## Déploiement Vercel (mode démo)
+
+La branche `vibe/vercel-deploy-583070` est déployable sur [Vercel](https://vercel.com/new) : frontend statique + API serverless `/api/*` (`api/index.py`), sans GPU ni YOLO (`MockDetector`, base éphémère dans `/tmp`). Voir [docs/VERCEL.md](docs/VERCEL.md). Pour une inférence réelle avec persistance, utiliser `docker compose up` (Render/Railway/VPS) et pointer `VITE_API_URL` dessus.
+
 ## Docker Compose (API + PostGIS + MinIO)
 
 ```bash

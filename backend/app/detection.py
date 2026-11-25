@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,7 +73,13 @@ class MockDetector(BaseDetector):
         seed = int((gray * 1000 + w * 7 + h * 3) % (2**32))
         rng = np.random.default_rng(seed)
         n = int(rng.integers(0, 7))
-        classes = ["plastic_bottle", "plastic_bag", "metal_can", "paper_cardboard", "mixed_waste"]
+        classes = [
+            "plastic_bottle",
+            "plastic_bag",
+            "metal_can",
+            "paper_cardboard",
+            "mixed_waste",
+        ]
         out = []
         for _ in range(n):
             cls = classes[int(rng.integers(0, len(classes)))]
@@ -99,44 +106,40 @@ def load_detector(weights: Path, backend: str = "auto") -> BaseDetector:
     return MockDetector()
 
 
-def encode_image_jpeg(image: np.ndarray) -> bytes:
-    import cv2
+def decode_image_bytes(content: bytes) -> np.ndarray:
+    from PIL import Image
 
-    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    if not ok:
-        raise ValueError("Encodage JPEG impossible")
-    return buf.tobytes()
+    pil = Image.open(io.BytesIO(content))
+    return np.asarray(pil.convert("RGB"))
+
+
+def encode_image_jpeg(image: np.ndarray, quality: int = 88) -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(image).save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
 
 
 def draw_detections(image: np.ndarray, detections: list[Detection]) -> np.ndarray:
-    import cv2
+    from PIL import Image, ImageDraw, ImageFont
 
-    out = image.copy()
-    h, w = out.shape[:2]
+    h, w = image.shape[:2]
+    pil = Image.fromarray(image.copy())
+    draw = ImageDraw.Draw(pil)
+    try:
+        font = ImageFont.load_default(size=14)
+    except TypeError:
+        font = ImageFont.load_default()
     for det in detections:
         x1, y1, x2, y2 = det.bbox_xyxy_norm
-        p1 = (int(x1 * w), int(y1 * h))
-        p2 = (int(x2 * w), int(y2 * h))
-        cv2.rectangle(out, p1, p2, (0, 200, 0), 2)
-        cv2.putText(
-            out,
-            f"{det.class_name} {det.confidence:.2f}",
-            (p1[0], max(12, p1[1] - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.45,
-            (0, 200, 0),
-            1,
-            cv2.LINE_AA,
-        )
-    return out
+        box = [x1 * w, y1 * h, x2 * w, y2 * h]
+        draw.rectangle(box, outline=(25, 170, 70), width=2)
+        label = f"{det.class_name} {det.confidence:.2f}"
+        draw.text((box[0] + 2, max(0, box[1] - 16)), label, fill=(25, 170, 70), font=font)
+    return np.asarray(pil)
 
 
 def decode_data_url(data_url: str) -> np.ndarray:
-    import cv2
-
     payload = data_url.split(",", 1)[-1]
-    buf = np.frombuffer(base64.b64decode(payload), dtype=np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Image illisible")
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return decode_image_bytes(base64.b64decode(payload))
