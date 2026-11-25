@@ -1,8 +1,13 @@
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+ON_SERVERLESS = bool(
+    os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+)
 
 WASTE_CLASSES = [
     "plastic_bottle",
@@ -15,12 +20,20 @@ WASTE_CLASSES = [
 ZONE_CATEGORIES = ["clean_zone", "isolated_waste", "accumulation", "suspect_deposit"]
 VALIDATION_STATUSES = ["pending", "confirmed", "rejected"]
 
+DEFAULT_DB = (
+    "sqlite:////tmp/cleanspot.db"
+    if ON_SERVERLESS
+    else f"sqlite:///{REPO_ROOT / 'cleanspot.db'}"
+)
+DEFAULT_MEDIA = Path("/tmp/media") if ON_SERVERLESS else REPO_ROOT / "backend" / "media"
+
 
 class Settings(BaseSettings):
-    database_url: str = f"sqlite:///{BASE_DIR / 'cleanspot.db'}"
-    detection_weights: Path = BASE_DIR.parent / "models" / "detection" / "best.pt"
-    segmentation_weights: Path = BASE_DIR.parent / "models" / "segmentation" / "best-seg.pt"
-    media_dir: Path = BASE_DIR / "media"
+    database_url: str = DEFAULT_DB
+    detection_weights: Path = REPO_ROOT / "models" / "detection" / "best.pt"
+    coco_weights: Path = REPO_ROOT / "models" / "detection" / "yolov8n.pt"
+    segmentation_weights: Path = REPO_ROOT / "models" / "segmentation" / "best-seg.pt"
+    media_dir: Path = DEFAULT_MEDIA
     model_backend: str = "auto"
 
     s3_endpoint: str | None = None

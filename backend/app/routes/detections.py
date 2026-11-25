@@ -3,13 +3,12 @@ from __future__ import annotations
 import base64
 from datetime import datetime, timezone
 
-import cv2
-import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..detection import (
+    decode_image_bytes,
     draw_detections,
     encode_image_jpeg,
     load_detector,
@@ -52,11 +51,10 @@ def analyze_image(
     if not content:
         raise HTTPException(status_code=400, detail="Fichier image vide")
 
-    buf = np.frombuffer(content, dtype=np.uint8)
-    decoded = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-    if decoded is None:
+    try:
+        image_rgb = decode_image_bytes(content)
+    except Exception:
         raise HTTPException(status_code=400, detail="Image illisible")
-    image_rgb = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
 
     detector = _ensure_detector()
     detections = detector.predict(image_rgb)

@@ -1,0 +1,9 @@
+datasets/
+models/
+notebooks/
+dashboard/
+docs/
+scripts/
+frontend/node_modules/
+backend/media/
+backend/tests/

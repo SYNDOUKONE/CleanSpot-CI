@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,7 +73,13 @@ class MockDetector(BaseDetector):
         seed = int((gray * 1000 + w * 7 + h * 3) % (2**32))
         rng = np.random.default_rng(seed)
         n = int(rng.integers(0, 7))
-        classes = ["plastic_bottle", "plastic_bag", "metal_can", "paper_cardboard", "mixed_waste"]
+        classes = [
+            "plastic_bottle",
+            "plastic_bag",
+            "metal_can",
+            "paper_cardboard",
+            "mixed_waste",
+        ]
         out = []
         for _ in range(n):
             cls = classes[int(rng.integers(0, len(classes)))]
@@ -88,55 +95,99 @@ class MockDetector(BaseDetector):
         return out
 
 
-def load_detector(weights: Path, backend: str = "auto") -> BaseDetector:
-    try:
-        if Path(weights).exists():
-            detector = UltralyticsDetector(weights)
-            if backend != "mock":
-                return detector
-    except Exception:
-        pass
+COCO_WEIGHTS = Path(__file__).resolve().parent.parent.parent / "models" / "detection" / "yolov8n.pt"
+
+# Classes COCO proches de nos déchets. COCO ne contient ni sachets ni amas :
+# ces classes nécessitent des poids entraînés sur TACO/pLitterStreet/CleanSpot.
+COCO_TO_WASTE = {
+    39: "plastic_bottle",  # bottle
+    40: "plastic_bottle",  # wine glass (contenant transparent)
+    41: "metal_can",       # cup (gobelets et canettes vus de dessus)
+    73: "paper_cardboard", # book (papier/carton plat)
+}
+
+
+class CocoTrashDetector(UltralyticsDetector):
+    """YOLO COCO pré-entraîné (yolov8n.pt, vendu dans le repo) : vraie inférence
+    immédiate, sans entraînement. Détecte les objets proches de déchets et les
+    projette sur les classes CleanSpot.
+
+    Qualité démo : pas de sachets ni d'amas (absents de COCO). Utiliser des
+    poids entraînés (models/detection/best.pt) pour de la vraie performance.
+    """
+
+    def predict(self, image: np.ndarray, conf: float = 0.25) -> list[Detection]:
+        results = self.model.predict(image, conf=conf, verbose=False)
+        out: list[Detection] = []
+        for result in results:
+            h, w = result.orig_shape
+            for box in result.boxes:
+                cls_id = int(box.cls.item())
+                waste = COCO_TO_WASTE.get(cls_id)
+                if waste is None:
+                    continue
+                x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
+                out.append(
+                    Detection(
+                        class_name=waste,
+                        confidence=float(box.conf.item()),
+                        bbox_xyxy_norm=(x1 / w, y1 / h, x2 / w, y2 / h),
+                    )
+                )
+        return out
+
+
+def load_detector(weights: Path, backend: str = "auto", coco_weights: Path | None = None) -> BaseDetector:
+    """Chaîne de repli : poids entraînés -> YOLO COCO -> détecteur de démo."""
+    if backend != "mock":
+        try:
+            if Path(weights).exists():
+                return UltralyticsDetector(weights)
+        except Exception:
+            pass
+        try:
+            coco = Path(coco_weights) if coco_weights else COCO_WEIGHTS
+            if coco.exists():
+                return CocoTrashDetector(coco)
+        except Exception:
+            pass
     return MockDetector()
 
 
-def encode_image_jpeg(image: np.ndarray) -> bytes:
-    import cv2
+def decode_image_bytes(content: bytes) -> np.ndarray:
+    from PIL import Image
 
-    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    if not ok:
-        raise ValueError("Encodage JPEG impossible")
-    return buf.tobytes()
+    pil = Image.open(io.BytesIO(content))
+    return np.asarray(pil.convert("RGB"))
+
+
+def encode_image_jpeg(image: np.ndarray, quality: int = 88) -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(image).save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
 
 
 def draw_detections(image: np.ndarray, detections: list[Detection]) -> np.ndarray:
-    import cv2
+    from PIL import Image, ImageDraw, ImageFont
 
-    out = image.copy()
-    h, w = out.shape[:2]
+    h, w = image.shape[:2]
+    pil = Image.fromarray(image.copy())
+    draw = ImageDraw.Draw(pil)
+    try:
+        font = ImageFont.load_default(size=14)
+    except TypeError:
+        font = ImageFont.load_default()
     for det in detections:
         x1, y1, x2, y2 = det.bbox_xyxy_norm
-        p1 = (int(x1 * w), int(y1 * h))
-        p2 = (int(x2 * w), int(y2 * h))
-        cv2.rectangle(out, p1, p2, (0, 200, 0), 2)
-        cv2.putText(
-            out,
-            f"{det.class_name} {det.confidence:.2f}",
-            (p1[0], max(12, p1[1] - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.45,
-            (0, 200, 0),
-            1,
-            cv2.LINE_AA,
-        )
-    return out
+        box = [x1 * w, y1 * h, x2 * w, y2 * h]
+        draw.rectangle(box, outline=(25, 170, 70), width=2)
+        label = f"{det.class_name} {det.confidence:.2f}"
+        draw.text((box[0] + 2, max(0, box[1] - 16)), label, fill=(25, 170, 70), font=font)
+    return np.asarray(pil)
 
 
 def decode_data_url(data_url: str) -> np.ndarray:
-    import cv2
-
     payload = data_url.split(",", 1)[-1]
-    buf = np.frombuffer(base64.b64decode(payload), dtype=np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Image illisible")
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return decode_image_bytes(base64.b64decode(payload))
