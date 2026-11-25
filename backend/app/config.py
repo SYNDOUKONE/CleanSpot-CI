@@ -31,6 +31,7 @@ DEFAULT_MEDIA = Path("/tmp/media") if ON_SERVERLESS else REPO_ROOT / "backend" /
 class Settings(BaseSettings):
     database_url: str = DEFAULT_DB
     detection_weights: Path = REPO_ROOT / "models" / "detection" / "best.pt"
+    coco_weights: Path = REPO_ROOT / "models" / "detection" / "yolov8n.pt"
     segmentation_weights: Path = REPO_ROOT / "models" / "segmentation" / "best-seg.pt"
     media_dir: Path = DEFAULT_MEDIA
     model_backend: str = "auto"

@@ -38,7 +38,7 @@ def test_analyze_creates_geolocated_observation():
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["model_backend"] == "MockDetector"
+    assert body["model_backend"] in {"MockDetector", "CocoTrashDetector", "UltralyticsDetector"}
     assert body["observation_id"] is not None
     assert body["zone"]["category"] in (
         "clean_zone",

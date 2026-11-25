@@ -95,14 +95,62 @@ class MockDetector(BaseDetector):
         return out
 
 
-def load_detector(weights: Path, backend: str = "auto") -> BaseDetector:
-    try:
-        if Path(weights).exists():
-            detector = UltralyticsDetector(weights)
-            if backend != "mock":
-                return detector
-    except Exception:
-        pass
+COCO_WEIGHTS = Path(__file__).resolve().parent.parent.parent / "models" / "detection" / "yolov8n.pt"
+
+# Classes COCO proches de nos déchets. COCO ne contient ni sachets ni amas :
+# ces classes nécessitent des poids entraînés sur TACO/pLitterStreet/CleanSpot.
+COCO_TO_WASTE = {
+    39: "plastic_bottle",  # bottle
+    40: "plastic_bottle",  # wine glass (contenant transparent)
+    41: "metal_can",       # cup (gobelets et canettes vus de dessus)
+    73: "paper_cardboard", # book (papier/carton plat)
+}
+
+
+class CocoTrashDetector(UltralyticsDetector):
+    """YOLO COCO pré-entraîné (yolov8n.pt, vendu dans le repo) : vraie inférence
+    immédiate, sans entraînement. Détecte les objets proches de déchets et les
+    projette sur les classes CleanSpot.
+
+    Qualité démo : pas de sachets ni d'amas (absents de COCO). Utiliser des
+    poids entraînés (models/detection/best.pt) pour de la vraie performance.
+    """
+
+    def predict(self, image: np.ndarray, conf: float = 0.25) -> list[Detection]:
+        results = self.model.predict(image, conf=conf, verbose=False)
+        out: list[Detection] = []
+        for result in results:
+            h, w = result.orig_shape
+            for box in result.boxes:
+                cls_id = int(box.cls.item())
+                waste = COCO_TO_WASTE.get(cls_id)
+                if waste is None:
+                    continue
+                x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
+                out.append(
+                    Detection(
+                        class_name=waste,
+                        confidence=float(box.conf.item()),
+                        bbox_xyxy_norm=(x1 / w, y1 / h, x2 / w, y2 / h),
+                    )
+                )
+        return out
+
+
+def load_detector(weights: Path, backend: str = "auto", coco_weights: Path | None = None) -> BaseDetector:
+    """Chaîne de repli : poids entraînés -> YOLO COCO -> détecteur de démo."""
+    if backend != "mock":
+        try:
+            if Path(weights).exists():
+                return UltralyticsDetector(weights)
+        except Exception:
+            pass
+        try:
+            coco = Path(coco_weights) if coco_weights else COCO_WEIGHTS
+            if coco.exists():
+                return CocoTrashDetector(coco)
+        except Exception:
+            pass
     return MockDetector()
 
 
