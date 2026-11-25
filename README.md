@@ -66,9 +66,9 @@ CleanSpot-CI/
 
 Quatre situations par zone : `clean_zone`, `isolated_waste`, `accumulation`, `suspect_deposit`.
 
-## Démarrage rapide (sans GPU ni poids)
+## Démarrage rapide (sans GPU ni entraînement)
 
-Le backend bascule automatiquement sur un détecteur de démonstration si aucun poids n'est trouvé — toute la chaîne (détection, cartographie, validation, hotspots) fonctionne immédiatement.
+Les poids YOLOv8n COCO (`yolov8n.pt`, 6 Mo) sont vendus dans le dépôt : l'API fait **de la vraie inférence** via `CocoTrashDetector` (bouteilles, gobelets/canettes, cartons projetés sur les 5 classes). Les classes absentes de COCO (sachets, amas) nécessitent des poids entraînés sur TACO/pLitterStreet/CleanSpot — voir ci-dessous. Chaîne de repli : `best.pt` entraîné → `yolov8n.pt` COCO → détecteur de démonstration.
 
 ```bash
 cd backend
@@ -126,6 +126,7 @@ Identifiants de démonstration dans `docker-compose.yml` — à changer avant to
 
 - [TACO — Trash Annotations in Context](https://zenodo.org/records/3354286)
 - [pLitterStreet](https://zenodo.org/records/8288500)
+- `models/detection/yolov8n.pt` : poids YOLOv8n pré-entraînés COCO, © Ultralytics sous [AGPL-3.0](https://github.com/ultralytics/ultralytics/blob/main/LICENSE) — utilisés uniquement pour l'inférence de démonstration ; pour un usage commercial, entraîner/servir des poids sans AGPL ou obtenir une licence Ultralytics
 
 Vérifier les licences fichier par fichier avant toute redistribution ou usage commercial ; la fiche pLitterStreet ne renseigne pas de licence globale.
 
